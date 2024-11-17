@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{WebGlRenderingContext, WebGlProgram, WebGlShader};
+use web_sys::{WebGlRenderingContext, WebGlProgram, WebGlShader, HtmlCanvasElement};
+use wasm_bindgen::JsCast;
 
 #[wasm_bindgen]
 pub struct DemoEffect {
@@ -8,6 +9,8 @@ pub struct DemoEffect {
     text_program: WebGlProgram,
     time: f32,
     scroll_offset: f32,
+    canvas_width: i32,
+    canvas_height: i32,
 }
 
 #[wasm_bindgen]
@@ -22,6 +25,10 @@ impl DemoEffect {
             .unwrap()
             .dyn_into::<WebGlRenderingContext>()?;
 
+        // Get initial canvas size
+        let canvas_width = canvas.width() as i32;
+        let canvas_height = canvas.height() as i32;
+        
         // Copper bars shader program
         let copper_vertex_shader = compile_shader(
             &context,
@@ -90,10 +97,28 @@ impl DemoEffect {
             text_program,
             time: 0.0,
             scroll_offset: 1.0,
+            canvas_width,
+            canvas_height,
         })
     }
 
     pub fn render(&mut self) {
+        // Update viewport if canvas size changed
+        let canvas = self.context
+            .canvas()
+            .unwrap()
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .unwrap();
+            
+        let client_width = canvas.client_width();
+        let client_height = canvas.client_height();
+        
+        if client_width != self.canvas_width || client_height != self.canvas_height {
+            canvas.set_width(client_width as u32);
+            canvas.set_height(client_height as u32);
+            self.resize(client_width, client_height);
+        }
+
         self.time += 0.016;
         self.scroll_offset -= 0.005;
         if self.scroll_offset < -3.0 {
@@ -175,6 +200,23 @@ impl DemoEffect {
             
             self.context.draw_arrays(WebGlRenderingContext::TRIANGLES, 0, 6);
         }
+    }
+
+    #[wasm_bindgen]
+    pub fn resize(&mut self, width: i32, height: i32) {
+        // Get the actual canvas element
+        let canvas = self.context
+            .canvas()
+            .unwrap()
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .unwrap();
+        
+        // Set both the canvas size and viewport
+        canvas.set_width(width as u32);
+        canvas.set_height(height as u32);
+        self.canvas_width = width;
+        self.canvas_height = height;
+        self.context.viewport(0, 0, width, height);
     }
 }
 
