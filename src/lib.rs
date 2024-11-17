@@ -276,44 +276,42 @@ fn create_character_geometry(index: f32, c: char) -> (Vec<f32>, Vec<f32>) {
     (vertices, tex_coords)
 }
 
+const TOPAZ_FONT_BITMAP: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEwAACxMBAJqcGAAAAu5JREFUeJzt3UFuE0EUhOF/bIlFuEZOw4Y9C/ZcB27DDdhwDrYcICshJZGHhQUUwii2xx6/mq6vktWolV7p1XTN9IxnZgYAAAAAAAAAAAAAAAAAAAAAAAAAgP/KrPsCUP7g9/f3ZmZWVVXVw8PDdK7/rqqenp6qqurhdrv9M7O367ruC/jlzOyjeH+/5UwJYGbW7vf7b2b2xd3Pq6pqmqaPVVWdTqfNuq77+Xx+c3f/WFV1Pp+rqmq/3894b8vqvoBfzczs4+Vyed9ae1dVdTgcPrn7p9bavK7rL621t621t+u6vn98fHzn7n9VVbXWqqrq5eVl1vs7/IkQM7O2bdu3aZreV1Wdz+e/3f1da+2r9/5tmqYP7n6qqvL5fK7WWrn7uapqnufq/bvhA5iZtcvl8r619q6q6nA4fHL3T621eV3XX1prb1tr1Vr7fr1e37TWvlZVTdNUVVWXy2XW+zv8CTAza9u2fZum6X1V1fl8/tvd37XWvnrvZmZVVTVNk7v7qffuvX8f/gSYmdn1ev3aWvtSVXU8Ht3d/zSzv6uqDofDVFV1PB6rqmqe5/J+qKrq+Xk4E2Bm1q7X69fW2peqquPx6O7+p5n9XVV1OBymqqrj8VhVVfM8l/dDVVU9Pw9nAszM2vV6/dpa+1JVdTwe3d3/NLO/q6oOh8NUVfXy8lLuXlVVz8/DmQAzs3a9Xr+21r5UVR2PR3f3P83s76qqw+EwVVU9Pz+Xu1dV1fPzcCbAzKxdr9eP0zR9rqo6Ho/u7sfWWlVVHQ6Hqarq+fm53L2qqp6fhzMBZmZtWZaP8zx/rqo6Ho/u7sfWWlVVHQ6Hqarq+fm53L2qqpaFEWBm1pZl+TjP8+eqquPx6O5+bK1VVdXhcJiqqpaFEWBm1pZl+TjP8+eqquPx6O5+bK1VVdWyMALMzNqyLB/nef5cVXU8Ht3dj621qqpaFkYAAAAAAAAAAAAAAAAAAAAAAAAAAADw//gHQgJYp6Pz3YAAAAAASUVORK5CYII=";
+
 fn create_font_texture(context: &WebGlRenderingContext) -> Result<WebGlTexture, JsValue> {
     let texture = context.create_texture().unwrap();
     context.bind_texture(WebGlRenderingContext::TEXTURE_2D, Some(&texture));
 
-    // Create a basic font texture (8x8 pixel characters in a 16x16 grid)
-    let mut font_data = Vec::new();
-    // This is a simplified version - you'd want to use actual font data
-    for _ in 0..256 {
-        for _ in 0..64 { // 8x8 pixels per character
-            font_data.extend_from_slice(&[255, 255, 255, 255]); // RGBA
-        }
-    }
-
-    unsafe {
-        let tex_data = js_sys::Uint8Array::view(&font_data);
-        context.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+    // Create an HTML Image element to load the font
+    let image = web_sys::HtmlImageElement::new()?;
+    
+    // Set up image loading callback
+    let callback = Closure::wrap(Box::new(move || {
+        context.bind_texture(WebGlRenderingContext::TEXTURE_2D, Some(&texture));
+        context.tex_image_2d_with_u32_and_u32_and_html_image_element(
             WebGlRenderingContext::TEXTURE_2D,
             0,
             WebGlRenderingContext::RGBA as i32,
-            128, // 16 chars * 8 pixels
-            128, // 16 chars * 8 pixels
-            0,
             WebGlRenderingContext::RGBA,
             WebGlRenderingContext::UNSIGNED_BYTE,
-            Some(&tex_data),
-        )?;
-    }
+            &image,
+        ).unwrap();
+        
+        context.tex_parameteri(
+            WebGlRenderingContext::TEXTURE_2D,
+            WebGlRenderingContext::TEXTURE_MIN_FILTER,
+            WebGlRenderingContext::NEAREST as i32,
+        );
+        context.tex_parameteri(
+            WebGlRenderingContext::TEXTURE_2D,
+            WebGlRenderingContext::TEXTURE_MAG_FILTER,
+            WebGlRenderingContext::NEAREST as i32,
+        );
+    }) as Box<dyn FnMut()>);
 
-    context.tex_parameteri(
-        WebGlRenderingContext::TEXTURE_2D,
-        WebGlRenderingContext::TEXTURE_MIN_FILTER,
-        WebGlRenderingContext::NEAREST as i32,
-    );
-    context.tex_parameteri(
-        WebGlRenderingContext::TEXTURE_2D,
-        WebGlRenderingContext::TEXTURE_MAG_FILTER,
-        WebGlRenderingContext::NEAREST as i32,
-    );
+    image.set_onload(Some(callback.as_ref().unchecked_ref()));
+    image.set_src(TOPAZ_FONT_BITMAP);
+    callback.forget();
 
     Ok(texture)
 } 

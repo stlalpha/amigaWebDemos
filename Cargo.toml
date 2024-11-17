@@ -18,6 +18,7 @@ web-sys = { version = "0.3", features = [
     "Window",
     "Document",
     "Element",
+    "Closure",
     "HtmlCanvasElement",
     "console",
     "WebGlTexture",
