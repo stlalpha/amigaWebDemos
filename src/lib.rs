@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{WebGlRenderingContext, WebGlProgram, WebGlShader};
+use web_sys::{WebGlRenderingContext, WebGlProgram, WebGlShader, WebGlTexture};
 
 #[wasm_bindgen]
 pub struct DemoEffect {
@@ -8,6 +8,7 @@ pub struct DemoEffect {
     text_program: WebGlProgram,
     time: f32,
     scroll_offset: f32,
+    font_texture: WebGlTexture,
 }
 
 #[wasm_bindgen]
@@ -56,16 +57,17 @@ impl DemoEffect {
             WebGlRenderingContext::VERTEX_SHADER,
             r#"
                 attribute vec4 position;
+                attribute vec2 tex_coord;
                 uniform float time;
                 uniform float scroll_offset;
+                varying vec2 v_tex_coord;
                 
                 void main() {
                     vec4 pos = position;
-                    // More pronounced sine wave effect
                     pos.y += sin(time * 3.0 + position.x * 4.0) * 0.15;
-                    // Apply scrolling
                     pos.x += scroll_offset;
                     gl_Position = pos;
+                    v_tex_coord = tex_coord;
                 }
             "#,
         )?;
@@ -75,8 +77,12 @@ impl DemoEffect {
             WebGlRenderingContext::FRAGMENT_SHADER,
             r#"
                 precision mediump float;
+                varying vec2 v_tex_coord;
+                uniform sampler2D u_texture;
+                
                 void main() {
-                    gl_FragColor = vec4(1.0, 1.0, 0.0, 1.0); // Yellow text
+                    vec4 texel = texture2D(u_texture, v_tex_coord);
+                    gl_FragColor = vec4(1.0, 1.0, 0.0, texel.a); // Yellow text
                 }
             "#,
         )?;
@@ -84,12 +90,16 @@ impl DemoEffect {
         let copper_program = link_program(&context, &copper_vertex_shader, &copper_fragment_shader)?;
         let text_program = link_program(&context, &text_vertex_shader, &text_fragment_shader)?;
 
+        // Create and initialize font texture
+        let font_texture = create_font_texture(&context)?;
+
         Ok(DemoEffect {
             context,
             copper_program,
             text_program,
             time: 0.0,
             scroll_offset: 1.0,
+            font_texture,
         })
     }
 
@@ -132,36 +142,24 @@ impl DemoEffect {
         
         self.context.draw_arrays(WebGlRenderingContext::TRIANGLES, 0, 6);
 
-        // Render scrolling text
+        // Text rendering
         self.context.use_program(Some(&self.text_program));
         
-        let text_time_location = self.context.get_uniform_location(&self.text_program, "time");
-        self.context.uniform1f(text_time_location.as_ref(), self.time);
-        
-        let scroll_location = self.context.get_uniform_location(&self.text_program, "scroll_offset");
-        self.context.uniform1f(scroll_location.as_ref(), self.scroll_offset);
+        // Bind texture
+        self.context.active_texture(WebGlRenderingContext::TEXTURE0);
+        self.context.bind_texture(WebGlRenderingContext::TEXTURE_2D, Some(&self.font_texture));
+        let sampler_location = self.context.get_uniform_location(&self.text_program, "u_texture");
+        self.context.uniform1i(sampler_location.as_ref(), 0);
 
-        // Render each letter
         let text = "PiRATE MiND STATiON";
-        for (i, _) in text.chars().enumerate() {
-            let letter_width = 0.15; // Width of each letter
-            let spacing = 0.02; // Space between letters
-            let start_x = (i as f32) * (letter_width + spacing);
+        for (i, c) in text.chars().enumerate() {
+            let (vertices, tex_coords) = create_character_geometry(i as f32, c);
             
-            let text_vertices: [f32; 12] = [
-                start_x, -0.1, 
-                start_x + letter_width, -0.1, 
-                start_x, 0.1,
-                start_x, 0.1, 
-                start_x + letter_width, -0.1, 
-                start_x + letter_width, 0.1
-            ];
-            
-            let text_buffer = self.context.create_buffer().unwrap();
-            self.context.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&text_buffer));
-            
+            // Position buffer
+            let position_buffer = self.context.create_buffer().unwrap();
+            self.context.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&position_buffer));
             unsafe {
-                let vert_array = js_sys::Float32Array::view(&text_vertices);
+                let vert_array = js_sys::Float32Array::view(&vertices);
                 self.context.buffer_data_with_array_buffer_view(
                     WebGlRenderingContext::ARRAY_BUFFER,
                     &vert_array,
@@ -169,10 +167,26 @@ impl DemoEffect {
                 );
             }
             
-            let text_position = self.context.get_attrib_location(&self.text_program, "position") as u32;
-            self.context.vertex_attrib_pointer_with_i32(text_position, 2, WebGlRenderingContext::FLOAT, false, 0, 0);
-            self.context.enable_vertex_attrib_array(text_position);
+            let position_loc = self.context.get_attrib_location(&self.text_program, "position") as u32;
+            self.context.vertex_attrib_pointer_with_i32(position_loc, 2, WebGlRenderingContext::FLOAT, false, 0, 0);
+            self.context.enable_vertex_attrib_array(position_loc);
+
+            // Texture coordinate buffer
+            let tex_coord_buffer = self.context.create_buffer().unwrap();
+            self.context.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&tex_coord_buffer));
+            unsafe {
+                let tex_array = js_sys::Float32Array::view(&tex_coords);
+                self.context.buffer_data_with_array_buffer_view(
+                    WebGlRenderingContext::ARRAY_BUFFER,
+                    &tex_array,
+                    WebGlRenderingContext::STATIC_DRAW,
+                );
+            }
             
+            let tex_loc = self.context.get_attrib_location(&self.text_program, "tex_coord") as u32;
+            self.context.vertex_attrib_pointer_with_i32(tex_loc, 2, WebGlRenderingContext::FLOAT, false, 0, 0);
+            self.context.enable_vertex_attrib_array(tex_loc);
+
             self.context.draw_arrays(WebGlRenderingContext::TRIANGLES, 0, 6);
         }
     }
@@ -226,4 +240,80 @@ fn link_program(
             .get_program_info_log(&program)
             .unwrap_or_else(|| String::from("Unknown error creating program object")))
     }
+}
+
+fn create_character_geometry(index: f32, c: char) -> (Vec<f32>, Vec<f32>) {
+    let char_width = 0.15;
+    let char_height = 0.2;
+    let x = index * (char_width * 1.2); // Add 20% spacing between characters
+    
+    // Character quad vertices
+    let vertices = vec![
+        x, -0.1,
+        x + char_width, -0.1,
+        x, char_height - 0.1,
+        x, char_height - 0.1,
+        x + char_width, -0.1,
+        x + char_width, char_height - 0.1,
+    ];
+
+    // Calculate texture coordinates based on character
+    let char_index = (c as u32).saturating_sub(32) as f32; // ASCII offset
+    let tex_x = (char_index % 16.0) / 16.0;
+    let tex_y = (char_index / 16.0).floor() / 16.0;
+    let tex_width = 1.0 / 16.0;
+    let tex_height = 1.0 / 16.0;
+
+    let tex_coords = vec![
+        tex_x, tex_y + tex_height,
+        tex_x + tex_width, tex_y + tex_height,
+        tex_x, tex_y,
+        tex_x, tex_y,
+        tex_x + tex_width, tex_y + tex_height,
+        tex_x + tex_width, tex_y,
+    ];
+
+    (vertices, tex_coords)
+}
+
+fn create_font_texture(context: &WebGlRenderingContext) -> Result<WebGlTexture, JsValue> {
+    let texture = context.create_texture().unwrap();
+    context.bind_texture(WebGlRenderingContext::TEXTURE_2D, Some(&texture));
+
+    // Create a basic font texture (8x8 pixel characters in a 16x16 grid)
+    let mut font_data = Vec::new();
+    // This is a simplified version - you'd want to use actual font data
+    for _ in 0..256 {
+        for _ in 0..64 { // 8x8 pixels per character
+            font_data.extend_from_slice(&[255, 255, 255, 255]); // RGBA
+        }
+    }
+
+    unsafe {
+        let tex_data = js_sys::Uint8Array::view(&font_data);
+        context.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+            WebGlRenderingContext::TEXTURE_2D,
+            0,
+            WebGlRenderingContext::RGBA as i32,
+            128, // 16 chars * 8 pixels
+            128, // 16 chars * 8 pixels
+            0,
+            WebGlRenderingContext::RGBA,
+            WebGlRenderingContext::UNSIGNED_BYTE,
+            Some(&tex_data),
+        )?;
+    }
+
+    context.tex_parameteri(
+        WebGlRenderingContext::TEXTURE_2D,
+        WebGlRenderingContext::TEXTURE_MIN_FILTER,
+        WebGlRenderingContext::NEAREST as i32,
+    );
+    context.tex_parameteri(
+        WebGlRenderingContext::TEXTURE_2D,
+        WebGlRenderingContext::TEXTURE_MAG_FILTER,
+        WebGlRenderingContext::NEAREST as i32,
+    );
+
+    Ok(texture)
 } 
