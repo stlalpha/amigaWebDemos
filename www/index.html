@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Amiga Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100% !important;
+            height: 100% !important;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="demo-canvas"></canvas>
+    <script type="module">
+        import init, { DemoEffect } from './pkg/demo.js';
+
+        let demo = null;
+
+        function resizeCanvas() {
+            const canvas = document.getElementById('demo-canvas');
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            if (demo) {
+                demo.resize(width, height);
+            }
+        }
+
+        async function run() {
+            console.clear();
+            console.log("🚀 Starting demo initialization...");
+            
+            // Set initial canvas size
+            resizeCanvas();
+            
+            try {
+                await init();
+                console.log("✅ WASM initialized");
+                
+                demo = DemoEffect.new("demo-canvas");
+                console.log("🎮 Demo created");
+                
+                function animate() {
+                    try {
+                        demo.render();
+                        requestAnimationFrame(animate);
+                    } catch (e) {
+                        console.error("❌ Animation error:", e);
+                    }
+                }
+                
+                console.log("🎬 Starting animation loop");
+                animate();
+            } catch (e) {
+                console.error("❌ Initialization error:", e);
+            }
+        }
+
+        // Handle window resizing
+        window.addEventListener('resize', resizeCanvas);
+        
+        // Start the demo when page loads
+        window.addEventListener('load', () => {
+            console.log("📄 Page loaded, running demo");
+            run().catch(e => console.error("❌ Runtime error:", e));
+        });
+    </script>
+</body>
+</html>
