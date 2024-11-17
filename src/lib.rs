@@ -1,14 +1,12 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{WebGlRenderingContext, WebGlProgram, WebGlShader, WebGlTexture};
+use web_sys::{WebGlRenderingContext, WebGlProgram, WebGlShader};
 
 #[wasm_bindgen]
 pub struct DemoEffect {
     context: WebGlRenderingContext,
-    program: WebGlProgram,
+    copper_program: WebGlProgram,
     text_program: WebGlProgram,
     time: f32,
-    font_texture: WebGlTexture,
-    scroll_text: String,
     scroll_offset: f32,
 }
 
@@ -23,9 +21,9 @@ impl DemoEffect {
             .get_context("webgl")?
             .unwrap()
             .dyn_into::<WebGlRenderingContext>()?;
-            
-        // Vertex shader for copper bars
-        let vertex_shader = compile_shader(
+
+        // Copper bars shader program
+        let copper_vertex_shader = compile_shader(
             &context,
             WebGlRenderingContext::VERTEX_SHADER,
             r#"
@@ -36,8 +34,7 @@ impl DemoEffect {
             "#,
         )?;
 
-        // Fragment shader for copper bars
-        let fragment_shader = compile_shader(
+        let copper_fragment_shader = compile_shader(
             &context,
             WebGlRenderingContext::FRAGMENT_SHADER,
             r#"
@@ -53,77 +50,65 @@ impl DemoEffect {
             "#,
         )?;
 
-        let program = link_program(&context, &vertex_shader, &fragment_shader)?;
-        context.use_program(Some(&program));
-
-        // Add new vertex shader for text
+        // Text shader program
         let text_vertex_shader = compile_shader(
             &context,
             WebGlRenderingContext::VERTEX_SHADER,
             r#"
                 attribute vec4 position;
-                attribute vec2 tex_coords;
-                varying vec2 v_tex_coords;
                 uniform float time;
                 uniform float scroll_offset;
                 
                 void main() {
                     vec4 pos = position;
-                    // Apply sine wave effect
-                    pos.y += sin(time * 2.0 + pos.x * 3.0) * 0.1;
+                    // More pronounced sine wave effect
+                    pos.y += sin(time * 3.0 + position.x * 4.0) * 0.15;
                     // Apply scrolling
                     pos.x += scroll_offset;
                     gl_Position = pos;
-                    v_tex_coords = tex_coords;
                 }
             "#,
         )?;
 
-        // Add fragment shader for text
         let text_fragment_shader = compile_shader(
             &context,
             WebGlRenderingContext::FRAGMENT_SHADER,
             r#"
                 precision mediump float;
-                varying vec2 v_tex_coords;
-                uniform sampler2D font_texture;
-                
                 void main() {
-                    vec4 color = texture2D(font_texture, v_tex_coords);
-                    // Make text yellow
-                    gl_FragColor = vec4(1.0, 1.0, 0.0, color.a);
+                    gl_FragColor = vec4(1.0, 1.0, 0.0, 1.0); // Yellow text
                 }
             "#,
         )?;
 
+        let copper_program = link_program(&context, &copper_vertex_shader, &copper_fragment_shader)?;
         let text_program = link_program(&context, &text_vertex_shader, &text_fragment_shader)?;
-        
-        // Create font texture
-        let font_texture = create_font_texture(&context)?;
 
         Ok(DemoEffect {
             context,
-            program,
+            copper_program,
             text_program,
             time: 0.0,
-            font_texture,
-            scroll_text: "HELLO WORLD * AMIGA FOREVER * GREETINGS TO ALL DEMO MAKERS! * ".to_string(),
             scroll_offset: 1.0,
         })
     }
 
     pub fn render(&mut self) {
-        self.time += 0.016; // Assume 60fps
-        
-        // Clear screen
+        self.time += 0.016;
+        self.scroll_offset -= 0.005;
+        if self.scroll_offset < -3.0 {
+            self.scroll_offset = 1.0;
+        }
+
         self.context.clear_color(0.0, 0.0, 0.0, 1.0);
         self.context.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
-        
-        // Update time uniform
-        let time_location = self.context.get_uniform_location(&self.program, "time");
+
+        // Render copper bars
+        self.context.use_program(Some(&self.copper_program));
+        let time_location = self.context.get_uniform_location(&self.copper_program, "time");
         self.context.uniform1f(time_location.as_ref(), self.time);
         
-        // Draw fullscreen quad
+        // Draw copper bars
         let vertices: [f32; 12] = [
             -1.0, -1.0, 1.0, -1.0, -1.0, 1.0,
             -1.0, 1.0, 1.0, -1.0, 1.0, 1.0
@@ -141,7 +126,7 @@ impl DemoEffect {
             );
         }
         
-        let position = self.context.get_attrib_location(&self.program, "position") as u32;
+        let position = self.context.get_attrib_location(&self.copper_program, "position") as u32;
         self.context.vertex_attrib_pointer_with_i32(position, 2, WebGlRenderingContext::FLOAT, false, 0, 0);
         self.context.enable_vertex_attrib_array(position);
         
@@ -150,29 +135,45 @@ impl DemoEffect {
         // Render scrolling text
         self.context.use_program(Some(&self.text_program));
         
-        // Update uniforms
-        let time_location = self.context.get_uniform_location(&self.text_program, "time");
-        self.context.uniform1f(time_location.as_ref(), self.time);
+        let text_time_location = self.context.get_uniform_location(&self.text_program, "time");
+        self.context.uniform1f(text_time_location.as_ref(), self.time);
         
-        self.scroll_offset -= 0.01;
         let scroll_location = self.context.get_uniform_location(&self.text_program, "scroll_offset");
         self.context.uniform1f(scroll_location.as_ref(), self.scroll_offset);
 
-        // Reset scroll when text is off screen
-        if self.scroll_offset < -2.0 {
-            self.scroll_offset = 1.0;
-        }
-
-        // Render text characters
-        self.render_text();
-    }
-
-    fn render_text(&self) {
-        // Create vertices for each character
-        for (i, c) in self.scroll_text.chars().enumerate() {
-            let x = i as f32 * 0.1;  // character spacing
-            let vertices = create_character_quad(x, 0.0, c);
-            // ... render character using vertices
+        // Render each letter
+        let text = "PiRATE MiND STATiON";
+        for (i, _) in text.chars().enumerate() {
+            let letter_width = 0.15; // Width of each letter
+            let spacing = 0.02; // Space between letters
+            let start_x = (i as f32) * (letter_width + spacing);
+            
+            let text_vertices: [f32; 12] = [
+                start_x, -0.1, 
+                start_x + letter_width, -0.1, 
+                start_x, 0.1,
+                start_x, 0.1, 
+                start_x + letter_width, -0.1, 
+                start_x + letter_width, 0.1
+            ];
+            
+            let text_buffer = self.context.create_buffer().unwrap();
+            self.context.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&text_buffer));
+            
+            unsafe {
+                let vert_array = js_sys::Float32Array::view(&text_vertices);
+                self.context.buffer_data_with_array_buffer_view(
+                    WebGlRenderingContext::ARRAY_BUFFER,
+                    &vert_array,
+                    WebGlRenderingContext::STATIC_DRAW,
+                );
+            }
+            
+            let text_position = self.context.get_attrib_location(&self.text_program, "position") as u32;
+            self.context.vertex_attrib_pointer_with_i32(text_position, 2, WebGlRenderingContext::FLOAT, false, 0, 0);
+            self.context.enable_vertex_attrib_array(text_position);
+            
+            self.context.draw_arrays(WebGlRenderingContext::TRIANGLES, 0, 6);
         }
     }
 }
@@ -225,53 +226,4 @@ fn link_program(
             .get_program_info_log(&program)
             .unwrap_or_else(|| String::from("Unknown error creating program object")))
     }
-}
-
-fn create_character_quad(x: f32, y: f32, c: char) -> Vec<f32> {
-    let char_width = 0.1;
-    let char_height = 0.2;
-    
-    // Calculate texture coordinates based on character
-    let tx = ((c as u32 - 32) % 16) as f32 / 16.0;
-    let ty = ((c as u32 - 32) / 16) as f32 / 16.0;
-    
-    vec![
-        x, y, tx, ty,
-        x + char_width, y, tx + 1.0/16.0, ty,
-        x, y + char_height, tx, ty + 1.0/16.0,
-        x + char_width, y + char_height, tx + 1.0/16.0, ty + 1.0/16.0,
-    ]
-}
-
-fn create_font_texture(context: &WebGlRenderingContext) -> Result<WebGlTexture, JsValue> {
-    let texture = context.create_texture().unwrap();
-    context.bind_texture(WebGlRenderingContext::TEXTURE_2D, Some(&texture));
-    
-    // Here you would normally load a font texture
-    // For this example, we'll create a simple bitmap font
-    let font_data = create_bitmap_font();
-    
-    // Upload texture data
-    unsafe {
-        let tex_data = js_sys::Uint8Array::view(&font_data);
-        context.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-            WebGlRenderingContext::TEXTURE_2D,
-            0,
-            WebGlRenderingContext::RGBA as i32,
-            16,  // width
-            16,  // height
-            0,
-            WebGlRenderingContext::RGBA,
-            WebGlRenderingContext::UNSIGNED_BYTE,
-            Some(&tex_data),
-        )?;
-    }
-    
-    Ok(texture)
-}
-
-fn create_bitmap_font() -> Vec<u8> {
-    // Create a simple 16x16 bitmap font texture
-    // This is a placeholder - you'd want to create proper font data
-    vec![255; 16 * 16 * 4]
 } 
