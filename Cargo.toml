@@ -25,3 +25,4 @@ web-sys = { version = "0.3", features = [
     "WebGlBuffer",
     "HtmlImageElement",
 ] } 
+fontdue = "0.7.3"

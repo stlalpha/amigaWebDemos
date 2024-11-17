@@ -1,0 +1,9 @@
+target/.rustc_info.json
+target/wasm32-unknown-unknown/release/demo.d
+target/wasm32-unknown-unknown/release/demo.wasm
+target/wasm32-unknown-unknown/release/.fingerprint/demo-bdb0610617eb265e/dep-lib-demo
+target/wasm32-unknown-unknown/release/.fingerprint/demo-bdb0610617eb265e/lib-demo
+target/wasm32-unknown-unknown/release/.fingerprint/demo-bdb0610617eb265e/lib-demo.json
+target/wasm32-unknown-unknown/release/.fingerprint/demo-bdb0610617eb265e/output-lib-demo
+target/wasm32-unknown-unknown/release/deps/demo.d
+target/wasm32-unknown-unknown/release/deps/demo.wasm
