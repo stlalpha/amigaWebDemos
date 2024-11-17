@@ -95,60 +95,31 @@ impl DemoEffect {
                 uniform sampler2D u_texture;
                 
                 void main() {
-                    vec4 color = texture2D(u_texture, v_texcoord);
-                    gl_FragColor = vec4(1.0, 1.0, 1.0, color.r);
+                    vec4 texColor = texture2D(u_texture, v_texcoord);
+                    gl_FragColor = vec4(1.0, 1.0, 0.0, texColor.r);
                 }
             "#,
         )?;
 
         let text_program = link_program(&context, &text_vertex_shader, &text_fragment_shader)?;
 
-        // Create text texture
-        let text_texture = context.create_texture().ok_or("Failed to create texture")?;
-        context.bind_texture(WebGlRenderingContext::TEXTURE_2D, Some(&text_texture));
+        // Load font
+        let font = Font::from_bytes(FONT_DATA, fontdue::FontSettings::default())
+            .map_err(|e| format!("Failed to load font: {:?}", e))?;
         
-        // Create a simple white texture for now (we'll implement proper text rendering later)
-        let pixels = vec![255u8; 256 * 64];
-        unsafe {
-            let tex_data = js_sys::Uint8Array::view(&pixels);
-            context.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-                WebGlRenderingContext::TEXTURE_2D,
-                0,
-                WebGlRenderingContext::LUMINANCE as i32,
-                256,
-                64,
-                0,
-                WebGlRenderingContext::LUMINANCE,
-                WebGlRenderingContext::UNSIGNED_BYTE,
-                Some(&tex_data),
-            )?;
-        }
+        // Create text texture
+        let text = "PiRATE MiND STATiON    ";
+        let scale = 64.0;
+        let (text_texture, _width, _height) = create_text_texture(&context, text, &font, scale)?;
 
-        // Set texture parameters
-        context.tex_parameteri(
-            WebGlRenderingContext::TEXTURE_2D,
-            WebGlRenderingContext::TEXTURE_MIN_FILTER,
-            WebGlRenderingContext::LINEAR as i32,
-        );
-        context.tex_parameteri(
-            WebGlRenderingContext::TEXTURE_2D,
-            WebGlRenderingContext::TEXTURE_WRAP_S,
-            WebGlRenderingContext::CLAMP_TO_EDGE as i32,
-        );
-        context.tex_parameteri(
-            WebGlRenderingContext::TEXTURE_2D,
-            WebGlRenderingContext::TEXTURE_WRAP_T,
-            WebGlRenderingContext::CLAMP_TO_EDGE as i32,
-        );
-
-        // Create text vertex and texture buffers
+        // Adjust text vertices based on aspect ratio
         let text_vertices: [f32; 12] = [
-            0.0, -0.1,   // Bottom left
-            2.0, -0.1,   // Bottom right (wider to fit text)
-            0.0,  0.1,   // Top left
-            0.0,  0.1,   // Top left
-            2.0, -0.1,   // Bottom right
-            2.0,  0.1,   // Top right
+            0.0, -0.15,   // Bottom left
+            2.0, -0.15,   // Bottom right
+            0.0,  0.15,   // Top left
+            0.0,  0.15,   // Top left
+            2.0, -0.15,   // Bottom right
+            2.0,  0.15,   // Top right
         ];
 
         let text_texcoords: [f32; 12] = [
@@ -388,4 +359,74 @@ fn link_program(
             .get_program_info_log(&program)
             .unwrap_or_else(|| String::from("Unknown error creating program object")))
     }
+}
+
+fn create_text_texture(context: &WebGlRenderingContext, text: &str, font: &Font, scale: f32) -> Result<(WebGlTexture, i32, i32), JsValue> {
+    let text_texture = context.create_texture().ok_or("Failed to create texture")?;
+    context.bind_texture(WebGlRenderingContext::TEXTURE_2D, Some(&text_texture));
+    
+    // Calculate total width and get max height
+    let mut total_width = 0;
+    let mut max_height = 0;
+    let layouts: Vec<_> = text.chars().map(|c| font.metrics(c, scale)).collect();
+    for layout in &layouts {
+        total_width += layout.advance_width as i32;
+        max_height = max_height.max(layout.height);
+    }
+    
+    // Create bitmap
+    let mut bitmap = vec![0u8; (total_width * max_height as i32) as usize];
+    
+    // Render each character
+    let mut x_offset = 0;
+    for (c, layout) in text.chars().zip(layouts.iter()) {
+        let (_, char_bitmap) = font.rasterize(c, scale);
+        
+        // Copy character bitmap to the correct position
+        for y in 0..layout.height {
+            for x in 0..layout.width {
+                let src_idx = y * layout.width + x;
+                let dst_idx = (y * total_width as usize + x + x_offset) as usize;
+                if src_idx < char_bitmap.len() && dst_idx < bitmap.len() {
+                    bitmap[dst_idx] = char_bitmap[src_idx];
+                }
+            }
+        }
+        x_offset += layout.advance_width as usize;
+    }
+    
+    // Upload texture data
+    unsafe {
+        let tex_data = js_sys::Uint8Array::view(&bitmap);
+        context.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+            WebGlRenderingContext::TEXTURE_2D,
+            0,
+            WebGlRenderingContext::LUMINANCE as i32,
+            total_width,
+            max_height as i32,
+            0,
+            WebGlRenderingContext::LUMINANCE,
+            WebGlRenderingContext::UNSIGNED_BYTE,
+            Some(&tex_data),
+        )?;
+    }
+    
+    // Set texture parameters
+    context.tex_parameteri(
+        WebGlRenderingContext::TEXTURE_2D,
+        WebGlRenderingContext::TEXTURE_MIN_FILTER,
+        WebGlRenderingContext::LINEAR as i32,
+    );
+    context.tex_parameteri(
+        WebGlRenderingContext::TEXTURE_2D,
+        WebGlRenderingContext::TEXTURE_WRAP_S,
+        WebGlRenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    context.tex_parameteri(
+        WebGlRenderingContext::TEXTURE_2D,
+        WebGlRenderingContext::TEXTURE_WRAP_T,
+        WebGlRenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    
+    Ok((text_texture, total_width, max_height as i32))
 } 
