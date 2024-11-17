@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{WebGlRenderingContext, WebGlProgram, WebGlShader, WebGlTexture};
+use web_sys::{WebGlRenderingContext, WebGlProgram, WebGlShader, WebGlTexture, WebGlBuffer};
 use fontdue::Font;
 
 const FONT_DATA: &[u8] = include_bytes!("topaza1200.ttf");
@@ -8,9 +8,15 @@ const FONT_DATA: &[u8] = include_bytes!("topaza1200.ttf");
 pub struct DemoEffect {
     context: WebGlRenderingContext,
     copper_program: WebGlProgram,
+    text_program: WebGlProgram,
+    text_texture: WebGlTexture,
+    text_vbo: WebGlBuffer,
+    text_tbo: WebGlBuffer,
     time: f32,
+    scroll_offset: f32,
     canvas_width: i32,
     canvas_height: i32,
+    start_delay: f32,
 }
 
 #[wasm_bindgen]
@@ -59,12 +65,138 @@ impl DemoEffect {
 
         let copper_program = link_program(&context, &copper_vertex_shader, &copper_fragment_shader)?;
 
+        // Add text shader program setup
+        let text_vertex_shader = compile_shader(
+            &context,
+            WebGlRenderingContext::VERTEX_SHADER,
+            r#"
+                attribute vec4 position;
+                attribute vec2 texcoord;
+                varying vec2 v_texcoord;
+                uniform float scroll_offset;
+                uniform float time;
+                
+                void main() {
+                    vec4 pos = position;
+                    pos.y += sin(time * 1.5 + pos.x * 0.5) * 0.08;
+                    pos.x += scroll_offset;
+                    gl_Position = pos;
+                    v_texcoord = texcoord;
+                }
+            "#,
+        )?;
+
+        let text_fragment_shader = compile_shader(
+            &context,
+            WebGlRenderingContext::FRAGMENT_SHADER,
+            r#"
+                precision mediump float;
+                varying vec2 v_texcoord;
+                uniform sampler2D u_texture;
+                
+                void main() {
+                    vec4 color = texture2D(u_texture, v_texcoord);
+                    gl_FragColor = vec4(1.0, 1.0, 1.0, color.r);
+                }
+            "#,
+        )?;
+
+        let text_program = link_program(&context, &text_vertex_shader, &text_fragment_shader)?;
+
+        // Create text texture
+        let text_texture = context.create_texture().ok_or("Failed to create texture")?;
+        context.bind_texture(WebGlRenderingContext::TEXTURE_2D, Some(&text_texture));
+        
+        // Create a simple white texture for now (we'll implement proper text rendering later)
+        let pixels = vec![255u8; 256 * 64];
+        unsafe {
+            let tex_data = js_sys::Uint8Array::view(&pixels);
+            context.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+                WebGlRenderingContext::TEXTURE_2D,
+                0,
+                WebGlRenderingContext::LUMINANCE as i32,
+                256,
+                64,
+                0,
+                WebGlRenderingContext::LUMINANCE,
+                WebGlRenderingContext::UNSIGNED_BYTE,
+                Some(&tex_data),
+            )?;
+        }
+
+        // Set texture parameters
+        context.tex_parameteri(
+            WebGlRenderingContext::TEXTURE_2D,
+            WebGlRenderingContext::TEXTURE_MIN_FILTER,
+            WebGlRenderingContext::LINEAR as i32,
+        );
+        context.tex_parameteri(
+            WebGlRenderingContext::TEXTURE_2D,
+            WebGlRenderingContext::TEXTURE_WRAP_S,
+            WebGlRenderingContext::CLAMP_TO_EDGE as i32,
+        );
+        context.tex_parameteri(
+            WebGlRenderingContext::TEXTURE_2D,
+            WebGlRenderingContext::TEXTURE_WRAP_T,
+            WebGlRenderingContext::CLAMP_TO_EDGE as i32,
+        );
+
+        // Create text vertex and texture buffers
+        let text_vertices: [f32; 12] = [
+            0.0, -0.1,   // Bottom left
+            2.0, -0.1,   // Bottom right (wider to fit text)
+            0.0,  0.1,   // Top left
+            0.0,  0.1,   // Top left
+            2.0, -0.1,   // Bottom right
+            2.0,  0.1,   // Top right
+        ];
+
+        let text_texcoords: [f32; 12] = [
+            0.0, 1.0,
+            1.0, 1.0,
+            0.0, 0.0,
+            0.0, 0.0,
+            1.0, 1.0,
+            1.0, 0.0,
+        ];
+
+        let text_vbo = context.create_buffer().unwrap();
+        let text_tbo = context.create_buffer().unwrap();
+
+        // Initialize vertex buffer
+        context.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&text_vbo));
+        unsafe {
+            let vert_array = js_sys::Float32Array::view(&text_vertices);
+            context.buffer_data_with_array_buffer_view(
+                WebGlRenderingContext::ARRAY_BUFFER,
+                &vert_array,
+                WebGlRenderingContext::STATIC_DRAW,
+            );
+        }
+
+        // Initialize texture coordinate buffer
+        context.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&text_tbo));
+        unsafe {
+            let tex_array = js_sys::Float32Array::view(&text_texcoords);
+            context.buffer_data_with_array_buffer_view(
+                WebGlRenderingContext::ARRAY_BUFFER,
+                &tex_array,
+                WebGlRenderingContext::STATIC_DRAW,
+            );
+        }
+
         Ok(DemoEffect {
             context,
             copper_program,
+            text_program,
+            text_texture,
+            text_vbo,
+            text_tbo,
             time: 0.0,
+            scroll_offset: 1.0,
             canvas_width,
             canvas_height,
+            start_delay: 1.0,
         })
     }
 
@@ -118,6 +250,76 @@ impl DemoEffect {
         self.context.enable_vertex_attrib_array(position);
         
         self.context.draw_arrays(WebGlRenderingContext::TRIANGLES, 0, 6);
+
+        // Only start scrolling after delay
+        if self.start_delay > 0.0 {
+            self.start_delay -= 0.016;  // Assuming 60fps
+            return;
+        }
+
+        // Update scroll position
+        self.scroll_offset -= 0.005;
+        if self.scroll_offset < -3.0 {
+            self.scroll_offset = 1.0;
+        }
+
+        // Render scrolling text
+        self.context.use_program(Some(&self.text_program));
+        
+        // Enable blending for text transparency
+        self.context.enable(WebGlRenderingContext::BLEND);
+        self.context.blend_func(
+            WebGlRenderingContext::SRC_ALPHA,
+            WebGlRenderingContext::ONE_MINUS_SRC_ALPHA,
+        );
+
+        // Set uniforms
+        let time_loc = self.context.get_uniform_location(&self.text_program, "time");
+        let scroll_loc = self.context.get_uniform_location(&self.text_program, "scroll_offset");
+        self.context.uniform1f(time_loc.as_ref(), self.time);
+        self.context.uniform1f(scroll_loc.as_ref(), self.scroll_offset);
+
+        // Bind texture
+        self.context.active_texture(WebGlRenderingContext::TEXTURE0);
+        self.context.bind_texture(WebGlRenderingContext::TEXTURE_2D, Some(&self.text_texture));
+        let sampler_loc = self.context.get_uniform_location(&self.text_program, "u_texture");
+        self.context.uniform1i(sampler_loc.as_ref(), 0);
+
+        // Set up vertex attributes
+        let position_loc = self.context.get_attrib_location(&self.text_program, "position") as u32;
+        let texcoord_loc = self.context.get_attrib_location(&self.text_program, "texcoord") as u32;
+
+        // Bind and enable vertex position
+        self.context.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&self.text_vbo));
+        self.context.vertex_attrib_pointer_with_i32(
+            position_loc,
+            2,
+            WebGlRenderingContext::FLOAT,
+            false,
+            0,
+            0,
+        );
+        self.context.enable_vertex_attrib_array(position_loc);
+
+        // Bind and enable texture coordinates
+        self.context.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&self.text_tbo));
+        self.context.vertex_attrib_pointer_with_i32(
+            texcoord_loc,
+            2,
+            WebGlRenderingContext::FLOAT,
+            false,
+            0,
+            0,
+        );
+        self.context.enable_vertex_attrib_array(texcoord_loc);
+
+        // Draw the text
+        self.context.draw_arrays(WebGlRenderingContext::TRIANGLES, 0, 6);
+
+        // Clean up
+        self.context.disable(WebGlRenderingContext::BLEND);
+        self.context.disable_vertex_attrib_array(position_loc);
+        self.context.disable_vertex_attrib_array(texcoord_loc);
     }
 
     #[wasm_bindgen]
