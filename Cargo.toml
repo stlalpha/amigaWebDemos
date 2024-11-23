@@ -9,20 +9,23 @@ crate-type = ["cdylib"]
 [dependencies]
 wasm-bindgen = "0.2"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = [
-    "WebGlRenderingContext",
-    "WebGlProgram",
-    "WebGlShader",
-    "WebGlBuffer",
-    "WebGlUniformLocation",
-    "Window",
-    "Document",
-    "Element",
-    "HtmlCanvasElement",
-    "console",
-    "WebGlTexture",
-    "WebGlUniformLocation",
-    "WebGlBuffer",
-    "HtmlImageElement",
-] } 
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    'Document',
+    'Element',
+    'HtmlCanvasElement',
+    'WebGlBuffer',
+    'WebGlRenderingContext',
+    'WebGlProgram',
+    'WebGlShader',
+    'Window',
+    'Performance',
+    'PerformanceTiming',
+    'WebGlUniformLocation',
+    'WebGlActiveInfo',
+    'WebGlRenderingContext',
+    'WebGl2RenderingContext',
+]
 fontdue = "0.7.3"

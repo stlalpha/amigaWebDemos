@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Starfield Demo</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
 </head>
 <body>
     <canvas id="canvas"></canvas>
@@ -18,112 +22,12 @@
             const effect = new DemoEffect();
             console.log('DemoEffect instance created:', effect);
 
-            const canvas = document.getElementById('canvas');
-            const gl = canvas.getContext('webgl');
-            if (!gl) {
-                console.error('WebGL not supported');
-                return;
+            function animate() {
+                effect.render();
+                requestAnimationFrame(animate);
             }
 
-            // Set canvas size
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-
-            // Vertex shader source
-            const vertexShaderSource = `
-                attribute vec2 a_position;
-                void main() {
-                    gl_Position = vec4(a_position, 0.0, 1.0);
-                }
-            `;
-
-            // Fragment shader source
-            const fragmentShaderSource = `
-                precision mediump float;
-                uniform float u_time;
-                uniform vec2 u_resolution;
-                float random(vec2 st) {
-                    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
-                }
-                void main() {
-                    vec2 st = gl_FragCoord.xy / u_resolution.xy;
-                    st.x *= u_resolution.x / u_resolution.y;
-                    vec3 color = vec3(0.0);
-                    float stars = random(st * u_time) * 0.5 + 0.5;
-                    color += vec3(stars);
-                    gl_FragColor = vec4(color, 1.0);
-                }
-            `;
-
-            // Compile shaders
-            function compileShader(gl, source, type) {
-                const shader = gl.createShader(type);
-                gl.shaderSource(shader, source);
-                gl.compileShader(shader);
-                if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-                    console.error('Shader compile failed with: ' + gl.getShaderInfoLog(shader));
-                    gl.deleteShader(shader);
-                    return null;
-                }
-                return shader;
-            }
-
-            const vertexShader = compileShader(gl, vertexShaderSource, gl.VERTEX_SHADER);
-            const fragmentShader = compileShader(gl, fragmentShaderSource, gl.FRAGMENT_SHADER);
-
-            if (!vertexShader || !fragmentShader) {
-                console.error('Failed to compile shaders');
-                return;
-            }
-
-            // Create program
-            const program = gl.createProgram();
-            gl.attachShader(program, vertexShader);
-            gl.attachShader(program, fragmentShader);
-            gl.linkProgram(program);
-            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-                console.error('Program failed to link: ' + gl.getProgramInfoLog(program));
-                gl.deleteProgram(program);
-                return;
-            }
-
-            // Set up position buffer
-            const positionBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-            const positions = [
-                -1.0, -1.0,
-                 1.0, -1.0,
-                -1.0,  1.0,
-                 1.0,  1.0,
-            ];
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-
-            // Set up attribute
-            const positionLocation = gl.getAttribLocation(program, 'a_position');
-            gl.enableVertexAttribArray(positionLocation);
-            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-
-            // Get uniform locations
-            const resolutionUniformLocation = gl.getUniformLocation(program, 'u_resolution');
-            const timeUniformLocation = gl.getUniformLocation(program, 'u_time');
-
-            // Render loop
-            function render(time) {
-                time *= 0.001;  // convert to seconds
-
-                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-                gl.clear(gl.COLOR_BUFFER_BIT);
-
-                gl.useProgram(program);
-
-                gl.uniform2f(resolutionUniformLocation, gl.canvas.width, gl.canvas.height);
-                gl.uniform1f(timeUniformLocation, time);
-
-                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-                requestAnimationFrame(render);
-            }
-            requestAnimationFrame(render);
+            animate();
         }
 
         run().catch(console.error);
