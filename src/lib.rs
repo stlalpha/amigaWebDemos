@@ -13,6 +13,7 @@ pub struct DemoEffect {
     quad_buffer: WebGlBuffer,
     time: f32,
     resolution: (i32, i32),
+    text_scale: f32,
 }
 
 #[wasm_bindgen]
@@ -148,6 +149,7 @@ impl DemoEffect {
             quad_buffer,
             time: 0.0,
             resolution: (canvas_width, canvas_height),
+            text_scale: 1.0,
         })
     }
 
@@ -205,6 +207,19 @@ impl DemoEffect {
     pub fn resize(&mut self, width: i32, height: i32) {
         self.resolution = (width, height);
         self.context.viewport(0, 0, width, height);
+    }
+
+    #[wasm_bindgen]
+    pub fn set_text_scale(&mut self, scale: f32) -> Result<(), JsValue> {
+        self.text_scale = scale;
+        // Recreate text texture with new scale
+        let font = Font::from_bytes(FONT_DATA, fontdue::FontSettings::default())
+            .map_err(|e| format!("Failed to load font: {:?}", e))?;
+        let text = "PiRATE MiND STATiON   ";
+        let base_scale = 48.0;
+        let (new_texture, _, _) = create_text_texture(&self.context, text, &font, base_scale * scale)?;
+        self.text_texture = new_texture;
+        Ok(())
     }
 }
 
@@ -264,30 +279,30 @@ fn create_text_texture(context: &WebGlRenderingContext, text: &str, font: &Font,
     
     // Use same dimensions that worked with checkerboard
     let width = 512;
-    let height = 128;
+    let height = 64;
     
     // Create bitmap
     let mut bitmap = vec![0u8; width * height];
     
     // Render text centered
-    let scale = 96.0;  // Large font size
+    let scale = 48.0;
     let layouts: Vec<_> = text.chars().map(|c| font.metrics(c, scale)).collect();
     let total_width: f32 = layouts.iter().map(|l| l.advance_width).sum();
     
-    // Center position
+    // Center position - but flip vertically
     let start_x = ((width as f32 - total_width) / 2.0) as usize;
-    let start_y = (height as f32 / 2.0) as usize;
+    let start_y = height - ((height as f32 / 2.0) as usize);
     
     // Render each character
     let mut x_pos = start_x;
     for (c, layout) in text.chars().zip(layouts.iter()) {
         let (_, char_bitmap) = font.rasterize(c, scale);
         
-        // Copy character bitmap
+        // Copy character bitmap - flip vertically while copying
         for y in 0..layout.height {
             for x in 0..layout.width {
                 let src_idx = y * layout.width + x;
-                let dst_y = start_y - (layout.height / 2) + y;
+                let dst_y = start_y - y;
                 let dst_idx = dst_y * width + x_pos + x;
                 if src_idx < char_bitmap.len() && dst_idx < bitmap.len() {
                     bitmap[dst_idx] = char_bitmap[src_idx];

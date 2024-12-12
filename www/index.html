@@ -27,61 +27,39 @@
     </style>
 </head>
 <body>
-    <canvas id="demo-canvas"></canvas>
+    <canvas id="canvas"></canvas>
     <script type="module">
         import init, { DemoEffect } from './pkg/demo.js';
 
-        let demo = null;
-
-        function resizeCanvas() {
-            const canvas = document.getElementById('demo-canvas');
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            canvas.width = width;
-            canvas.height = height;
-            if (demo) {
-                demo.resize(width, height);
-            }
-        }
-
         async function run() {
-            console.clear();
-            console.log("🚀 Starting demo initialization...");
-            
-            // Set initial canvas size
-            resizeCanvas();
-            
-            try {
-                await init();
-                console.log("✅ WASM initialized");
-                
-                demo = DemoEffect.new("demo-canvas");
-                console.log("🎮 Demo created");
-                
-                function animate() {
-                    try {
-                        demo.render();
-                        requestAnimationFrame(animate);
-                    } catch (e) {
-                        console.error("❌ Animation error:", e);
-                    }
+            console.log('Initializing Wasm module...');
+            await init();
+            console.log('Wasm module initialized.');
+
+            const effect = DemoEffect.new("canvas");
+            console.log('DemoEffect instance created:', effect);
+
+            // Test different scales
+            let currentScale = 1.0;
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowUp') {
+                    currentScale *= 1.2;
+                    effect.set_text_scale(currentScale);
+                } else if (e.key === 'ArrowDown') {
+                    currentScale *= 0.8;
+                    effect.set_text_scale(currentScale);
                 }
-                
-                console.log("🎬 Starting animation loop");
-                animate();
-            } catch (e) {
-                console.error("❌ Initialization error:", e);
+            });
+
+            function animate() {
+                effect.render();
+                requestAnimationFrame(animate);
             }
+
+            animate();
         }
 
-        // Handle window resizing
-        window.addEventListener('resize', resizeCanvas);
-        
-        // Start the demo when page loads
-        window.addEventListener('load', () => {
-            console.log("📄 Page loaded, running demo");
-            run().catch(e => console.error("❌ Runtime error:", e));
-        });
+        run().catch(console.error);
     </script>
 </body>
 </html>
