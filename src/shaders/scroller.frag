@@ -12,10 +12,9 @@ void main() {
 
     // Apply horizontal scrolling with clean text
     vec2 textUV = uv;
-    textUV.x = fract(textUV.x - iTime * 0.2);  // Slower, smoother scroll
+    textUV.x = fract(1.0 + textUV.x - iTime * 0.2);  // Added 1.0 to start from right
     
     // Keep text straight, only apply wave to vertical position
-    // This creates a bouncing effect rather than distortion
     float verticalOffset = uWaveParams.x * sin(iTime * uWaveParams.z) * 0.1;
     textUV.y += verticalOffset;
 
